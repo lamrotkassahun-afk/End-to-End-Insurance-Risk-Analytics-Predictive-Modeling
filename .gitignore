@@ -1,2 +1,4 @@
 .venv
 data
+# Add this line to your .gitignore file:
+!*.dvc
