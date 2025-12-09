@@ -1,105 +1,108 @@
-import os
 import pandas as pd
+import numpy as np
+import os
+import joblib
 from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import mean_squared_error, r2_score
 
-# --- Configuration Constants ---
-# Set the base directory to the root of the project 
-# (assuming modeling.py is in 'src' and the project root is the parent)
-BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
-
-# 🎯 CORRECTED PATH: Points to the final output of data_prep.py
-PROCESSED_DATA_PATH = os.path.join(BASE_DIR, 'data', 'processed', 'final_processed_data.csv') 
-
-# --- Modeling Functions ---
+# Define file paths
+PROCESSED_DATA_PATH = os.path.join('data', 'processed', 'final_processed_data.csv')
+MODEL_OUTPUT_PATH = os.path.join('models', 'severity_model.joblib')
 
 def load_processed_data(file_path):
-    """Loads the processed data from the specified path."""
-    print(f"Attempting to load processed data from: {os.path.normpath(file_path)}")
+    """
+    Loads the final processed data from a specified CSV file.
+    
+    Args:
+        file_path (str): The full path to the processed CSV file.
+        
+    Returns:
+        pd.DataFrame: The loaded DataFrame, or None if an error occurs.
+    """
+    print(f"Attempting to load processed data from: {file_path}")
     try:
-        df = pd.read_csv(file_path)
+        # FIX 1: Add sep='|' to correctly parse the pipe-delimited file
+        df = pd.read_csv(file_path, sep='|') 
+        
         print(f"Data loaded successfully. Shape: {df.shape}")
         return df
     except FileNotFoundError:
-        print(f"Error: Processed data file not found at {os.path.normpath(file_path)}")
+        print(f"Error: File not found at {file_path}")
         return None
     except Exception as e:
-        print(f"An error occurred during data loading: {e}")
+        print(f"An unexpected error occurred during data loading: {e}")
         return None
 
 def train_and_evaluate(df):
     """
-    Splits data, trains a model, and evaluates its performance.
+    Trains a predictive model (Linear Regression) and evaluates its performance.
     
-    NOTE: You must adjust the 'Target_Variable' and 'Feature_1', etc., 
-    to match the actual column names in your processed data.
+    Args:
+        df (pd.DataFrame): The pre-processed DataFrame.
     """
-    print("Starting model training and evaluation...")
+    TARGET_COLUMN = 'TotalClaims'
     
-    # --- Define Target and Features (ADJUST THESE COLUMN NAMES!) ---
-    # Replace 'Target_Variable' with your actual target column (e.g., 'Claim_Occurrence')
-    # Replace 'Feature_1', 'Feature_2', etc., with your actual feature columns
-    
-    try:
-        # Assuming your target variable is named 'Target_Variable' for demonstration
-        target_column = 'Target_Variable' 
-        
-        # Drop the target column to get features (X)
-        X = df.drop(columns=[target_column])
-        
-        # Target variable (y)
-        y = df[target_column]
-        
-    except KeyError as e:
-        print(f"\n❌ ERROR: Column {e} not found in the DataFrame.")
-        print("Please ensure you have run data_prep.py and adjust the column names in modeling.py.")
+    if TARGET_COLUMN not in df.columns:
+        print(f"Error: Target column '{TARGET_COLUMN}' not found in DataFrame columns.")
         return
-        
-    # Split data into training and testing sets
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
+
+    # **FIX 3: Drop rows where the TARGET_COLUMN is NaN**
+    # This prevents the ValueError: Input y contains NaN
+    print(f"Initial row count: {len(df)}")
+    df.dropna(subset=[TARGET_COLUMN], inplace=True)
+    print(f"Row count after dropping target NaNs: {len(df)}")
+
+
+    # 1. Feature and Target Split
+    # Drop the target and unnecessary non-numeric ID columns
+    X = df.drop(columns=[TARGET_COLUMN, 'UnderwrittenCoverID', 'PolicyID'], errors='ignore')
+    y = df[TARGET_COLUMN]
+
+    # Convert non-numeric columns to numeric (e.g., one-hot encoding or simply selecting numeric types)
+    X = X.select_dtypes(include=np.number)
+    X = X.fillna(0) # Fill any remaining NaNs in the features (X)
     
-    print(f"Train samples: {len(X_train)}, Test samples: {len(X_test)}")
-    
-    # 1. Initialize and Train the Model (Using Logistic Regression as a placeholder)
-    model = LogisticRegression(solver='liblinear', random_state=42)
+    # 2. Data Splitting
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    print(f"Data split successfully. Training samples: {len(X_train)}, Testing samples: {len(X_test)}")
+
+    # 3. Model Training (Linear Regression for insurance severity modeling)
+    print("Training model...")
+    model = LinearRegression()
+    # model.fit will now succeed because y_train is guaranteed to be clean
     model.fit(X_train, y_train)
+    print("Model training finished.")
     
-    # 2. Predict and Evaluate
+    # 4. Prediction and Evaluation
     y_pred = model.predict(X_test)
-    accuracy = accuracy_score(y_test, y_pred)
     
-    print("-" * 30)
-    print(f"Model Type: Logistic Regression")
-    print(f"Test Set Accuracy: {accuracy:.4f}")
-    print("-" * 30)
+    # Evaluation metrics for regression
+    mse = mean_squared_error(y_test, y_pred)
+    rmse = np.sqrt(mse)
+    r2 = r2_score(y_test, y_pred)
     
-    # You would typically save the model here (e.g., using joblib)
-    # print("Model training and evaluation complete.")
-    
-    return model
+    print("\n--- Model Evaluation Results (Regression) ---")
+    print(f"Mean Squared Error (MSE): {mse:.2f}")
+    print(f"Root Mean Squared Error (RMSE): {rmse:.2f}")
+    print(f"R-squared (R²): {r2:.4f}")
+    print("------------------------------------------")
 
-def main():
-    """Main function to run the modeling workflow."""
-    print("Starting machine learning modeling workflow...")
-    
-    # 1. Load Data
-    data_df = load_processed_data(PROCESSED_DATA_PATH)
-    
-    if data_df is None:
-        print("Modeling workflow terminated due to data loading error.")
-        return
-    
-    # 2. Train and Evaluate
-    trained_model = train_and_evaluate(data_df)
-    
-    # if trained_model:
-    #     # Add logic here to save the model using DVC or joblib
-    #     pass
+    # 5. Model Saving
+    os.makedirs(os.path.dirname(MODEL_OUTPUT_PATH), exist_ok=True)
+    joblib.dump(model, MODEL_OUTPUT_PATH)
+    print(f"Model saved successfully to: {MODEL_OUTPUT_PATH}")
 
+def run_modeling_workflow():
+    """
+    Main function to run the entire modeling workflow.
+    """
+    df = load_processed_data(PROCESSED_DATA_PATH)
+    
+    if df is not None and not df.empty:
+        train_and_evaluate(df)
+        
     print("Modeling workflow finished.")
 
 if __name__ == "__main__":
-    main()
+    run_modeling_workflow()
